@@ -93,34 +93,56 @@ uint32_t check_note(uint32_t note)
 
 // Ha varios harmonicos no sinal da guitarra, alguns maiores que o tom fundamental,
 // deseja-se adquirir o primeiro harmonico (fundamental)
-// ... função nao traz resultados como esperado ...
 
-uint32_t first_peak(float32_t *buffer, float32_t *mean)
+uint32_t first_peak(float32_t *buffer, uint32_t size)
 {
 	uint32_t ind = 0;
 	uint32_t i;
-	float32_t acc = 0;
-	float32_t med;  // para substituir o mean
+	uint32_t indexBuffer[5];
+	float32_t amp;  // para substituir o mean
 
-	for(i=0;i<256;i++){				// nao seria necessario varrer o buffer todo
-		acc = buffer[i] + acc;		// resultado obtido incompreendido
-	}
+	// Aquisição de 5 maiores picos
+	arm_max_f32(buffer,size,&amp,&ind);	// encontra o maior valor
+	indexBuffer[0] = ind;				// salva o indice
+	buffer[ind] = 0;					// zera no buffer..
+	//trace_printf("\nFIRST_PEAK 1: ind: %d	amp: %f\n",ind,amp);
 
-	acc = acc/256;
+	arm_max_f32(buffer,size,&amp,&ind);	// segundo pico
+	indexBuffer[1] = ind;
+	buffer[ind] = 0;
+	//trace_printf("FIRST_PEAK 2: ind: %d	amp: %f\n",ind,amp);
 
-	arm_mean_f32(buffer,BLOCK_SIZE/2,&med);
+	arm_max_f32(buffer,size,&amp,&ind);
+	indexBuffer[2] = ind;
+	buffer[ind] = 0;
+	//trace_printf("FIRST_PEAK 3: ind: %d	amp: %f\n",ind,amp);
 
-	for(i=0;i<BLOCK_SIZE/2;i++){
+	arm_max_f32(buffer,size,&amp,&ind);
+	indexBuffer[3] = ind;
+	buffer[ind] = 0;
+	//trace_printf("FIRST_PEAK 4: ind: %d	amp: %f\n",ind,amp);
 
-		if(buffer[i]>med){
-			ind = i;
-			break;
+	arm_max_f32(buffer,size,&amp,&ind);
+	indexBuffer[4] = ind;
+	buffer[ind] = 0;
+	//trace_printf("FIRST_PEAK 5: ind: %d	amp: %f\n",ind,amp);
+
+	ind = size*2;		  // valor maior que qualquer indice
+
+	for(i=0;i<5;i++){
+
+		if(indexBuffer[i]< ind & indexBuffer[i]>0){
+			ind = indexBuffer[i];
 		}
 	}
 
 	return ind;
 }
 
+//-----------------------------------------------------------------------
+// Seta o respectivo led
+
+void set_leds(uint32_t sel);
 
 //***********************************************************************
 int main(int argc, char* argv[])
@@ -129,7 +151,8 @@ int main(int argc, char* argv[])
 	UNUSED(argv);
 
 	uint32_t cycleCount;
-	uint32_t i,aux,L,R;
+	uint32_t i,L,R;
+	int32_t aux;
 	float32_t note_amp = 0;
 	uint32_t note_ind = 0;
 
@@ -218,14 +241,14 @@ int main(int argc, char* argv[])
 	// 	LOOP PRINCIPAL ------------------------------------------------------------------------------
 
 	while (1) {
-		// Add your code here.
+
 		if(buffer_offset == BUFFER_OFFSET_HALF)
 		{
 			DWT_Reset();
 
 			cycleCount = DWT_GetValue();
 
-			//INPUT HALF
+			// INPUT HALF  ---------------------------------------------------------------------------
 			for(i=0, L=0,R=0; i<(WOLFSON_PI_AUDIO_TXRX_BUFFER_SIZE/2); i++) {
 
 				if(i%2) {				 // aplicado uma pre amp para a guitarra ligada diretamente
@@ -250,7 +273,6 @@ int main(int argc, char* argv[])
 
 			// PROCESSAMENTO -----------------------------------------------
 
-
 			arm_rfft_fast_f32(&S_L, inputF32Buffer_L, outFFTBuffer_L, 0);
 			//arm_rfft_fast_f32(&S_R, outputF32Buffer_R, outFFTBuffer_R, 0);
 
@@ -268,45 +290,16 @@ int main(int argc, char* argv[])
 
 			// Detecta o pico da harmonica fundamental
 
-			arm_abs_f32(outFFTBuffer_L,outFFTBuffer_L,BLOCK_SIZE/2);
-			arm_max_f32(outFFTBuffer_L,BLOCK_SIZE/2,&note_amp,&note_ind);		// retorna o valor maximo, que na guitarra sera sempre o tom errado
-			//arm_mean_f32(outFFTBuffer_L,BLOCK_SIZE/2,&note_amp);				// retorna o valor medio em note_amp (nao funiona)
-			//note_ind = first_peak(outFFTBuffer_L,&note_amp);					// nao funciona
-
+			note_ind = first_peak(outFFTBuffer_L,BLOCK_SIZE/2);
 			aux = check_note(note_ind);		// verifica que nota é para acender o respectivo led
 
 			// Debug
-			trace_printf("BLOCK H:	 amp: %f 	 ind: %d 	 sel: %d\n",note_amp,note_ind,aux);
+			//trace_printf("BLOCK H:	 ind: %d 	 sel: %d\n",note_ind,aux);
 
-			switch(aux){
-
-				case 0:
-					HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_SET);
-					HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_RESET);
-					break;
-
-				case 1:
-					HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_SET);
-					HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_RESET);
-					break;
-
-				case 2:
-					HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_SET);
-					HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_RESET);
-					break;
-
-				default:
-					HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_RESET);
-					break;
-			}
+			set_leds(aux);
 
 
-			//OUTPUT HALF  ----- mandando só um canal
+			// OUTPUT HALF  ----- mandando só um canal ------------------------------------------
 			for(i=0, L=0,R=0; i<(WOLFSON_PI_AUDIO_TXRX_BUFFER_SIZE/2); i++) {
 				if(i%2)	{
 					TxBuffer[i] = (int16_t)(outputF32Buffer_L[L]*32768/2);//back to 1.15
@@ -321,6 +314,8 @@ int main(int argc, char* argv[])
 			buffer_offset = BUFFER_OFFSET_NONE;
 		}
 
+		/// BLOCK FULL   /////////////////////////////////////////////////////////////////////////
+
 		if(buffer_offset == BUFFER_OFFSET_FULL)
 		{
 			DWT_Reset();
@@ -328,7 +323,7 @@ int main(int argc, char* argv[])
 			cycleCount = DWT_GetValue();
 
 
-			// INPUT FULL
+			// INPUT FULL -------------------------------------------------------------------
 			for(i=(WOLFSON_PI_AUDIO_TXRX_BUFFER_SIZE/2), L=0,R=0; i<WOLFSON_PI_AUDIO_TXRX_BUFFER_SIZE; i++) {
 
 				if(i%2) {
@@ -369,45 +364,15 @@ int main(int argc, char* argv[])
 
 			// Detecta o pico da harmonica fundamental
 
-			arm_abs_f32(outFFTBuffer_L,outFFTBuffer_L,BLOCK_SIZE/2);
-			arm_max_f32(outFFTBuffer_L,BLOCK_SIZE/2,&note_amp,&note_ind);
-			//arm_mean_f32(outFFTBuffer_L,BLOCK_SIZE/2,&note_amp);				// retorna o valor medio em note_amp
-			//note_ind = first_peak(outFFTBuffer_L,&note_amp);
-
+			note_ind = first_peak(outFFTBuffer_L,BLOCK_SIZE/2);
 			aux = check_note(note_ind);		// verifica que nota é para acender o respectivo led
 
 			// Debug
-			trace_printf("BLOCK F:	 amp: %f 	 ind: %d 	 sel: %d\n",note_amp,note_ind,aux);
+			//trace_printf("BLOCK F:	 ind: %d 	 sel: %d\n",note_ind,aux);
 
-			switch(aux){
+			set_leds(aux);
 
-				case 0:
-					HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_SET);
-					HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_RESET);
-					break;
-
-				case 1:
-					HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_SET);
-					HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_RESET);
-					break;
-
-				case 2:
-					HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_SET);
-					HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_RESET);
-					break;
-
-				default:
-					HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_RESET);
-					break;
-			}
-
-
-			//OUTPUT  FULL
+			// OUTPUT  FULL  ----------------------------------------------------------------
 			for(i=(WOLFSON_PI_AUDIO_TXRX_BUFFER_SIZE/2), L=0,R=0; i<WOLFSON_PI_AUDIO_TXRX_BUFFER_SIZE; i++) {
 				if(i%2)	{
 					TxBuffer[i] = (int16_t)(outputF32Buffer_L[L]*32768/2);//back to 1.15
@@ -429,6 +394,38 @@ int main(int argc, char* argv[])
 }
 
 //--------------------------------------------------------------------------------------------
+
+void set_leds(uint32_t sel){
+
+	switch(sel){
+
+		case 0:
+			HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_RESET);
+			break;
+
+		case 1:
+			HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_RESET);
+			break;
+
+		case 2:
+			HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_RESET);
+			break;
+
+		default:
+			HAL_GPIO_WritePin(GPIOD, NOTE_PIN, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOD, DW_PIN, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOD, UP_PIN, GPIO_PIN_RESET);
+			break;
+	}
+
+}
+
 
 /*--------------------------------
 Callbacks implementation:
