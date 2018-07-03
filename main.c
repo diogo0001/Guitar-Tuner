@@ -52,43 +52,12 @@ __IO uint8_t Volume = 70;
 uint32_t AcceleroTicks;
 int16_t AcceleroAxis[3];
 
-
 //-----------------------------------------------------------------------
-void boost(float32_t *bufferIn, float32_t *bufferOut, float32_t pre)
-{
-	uint32_t i;
-	float32_t num_th = 3;
-	float32_t th = 1/num_th;
 
-	// Pre ganho
-	for(i=0;i<BLOCK_SIZE;i++){
-		bufferIn[i] = pre*bufferIn[i];
-	}
-
-	for(i=0;i<BLOCK_SIZE;i++){
-
-		if(abs(bufferIn[i]) < th)									// sinal  < 1/3     y = 2.7*x
-			bufferOut[i] = 2.85*bufferIn[i];
-
-		if(abs((bufferIn[i]) >= th)  & (abs(bufferIn[i]) < 2*th)){		// sinal <2/3
-			if(bufferIn[i] > 0)
-				bufferOut[i] = (num_th-(2-num_th*bufferIn[i])*(2-num_th*bufferIn[i]))/num_th;
-
-			if(bufferIn[i] < 0)
-				bufferOut[i] = -(num_th-(2-abs(bufferIn[i])*num_th)*(2-abs(bufferIn[i])*num_th))/num_th;
-		}
-
-		if (abs(bufferIn[i]) > 2*th){								// sinal > 2/3   satura
-			  if (bufferIn[i] > 0)
-				  bufferOut[i] = 0.987;
-
-			  if (bufferIn[i] < 0)
-				  bufferOut[i] = -0.998;
-		}
-	}
-}
-
-//-----------------------------------------------------------------------
+// Detecta o tom diretamente pelo indice do buffer da fft.
+// Os indices foram aferidos pelos tons de uma senoide pura,
+// que foram tocados e detectados em que indice correspondiam no buffer
+// utiizando o trace_printf()
 
 uint32_t check_note(uint32_t note)
 {
@@ -122,24 +91,28 @@ uint32_t check_note(uint32_t note)
 }
 //-----------------------------------------------------------------------
 
-// Ha varios harmonicos no sinal da guitarra, alguns maiores que a fundamental,
+// Ha varios harmonicos no sinal da guitarra, alguns maiores que o tom fundamental,
 // deseja-se adquirir o primeiro harmonico (fundamental)
+// ... função nao traz resultados como esperado ...
 
 uint32_t first_peak(float32_t *buffer, float32_t *mean)
 {
 	uint32_t ind = 0;
 	uint32_t i;
 	float32_t acc = 0;
+	float32_t med;  // para substituir o mean
 
-	for(i=0;i<128;i++){		// Não é necessário fazer uma média com todos, apenas com os iniciais
-		acc = buffer[i] + acc;
+	for(i=0;i<256;i++){				// nao seria necessario varrer o buffer todo
+		acc = buffer[i] + acc;		// resultado obtido incompreendido
 	}
 
-	*mean = acc/128;
+	acc = acc/256;
+
+	arm_mean_f32(buffer,BLOCK_SIZE/2,&med);
 
 	for(i=0;i<BLOCK_SIZE/2;i++){
 
-		if(buffer[i]>*mean){
+		if(buffer[i]>med){
 			ind = i;
 			break;
 		}
@@ -277,6 +250,7 @@ int main(int argc, char* argv[])
 
 			// PROCESSAMENTO -----------------------------------------------
 
+
 			arm_rfft_fast_f32(&S_L, inputF32Buffer_L, outFFTBuffer_L, 0);
 			//arm_rfft_fast_f32(&S_R, outputF32Buffer_R, outFFTBuffer_R, 0);
 
@@ -295,14 +269,14 @@ int main(int argc, char* argv[])
 			// Detecta o pico da harmonica fundamental
 
 			arm_abs_f32(outFFTBuffer_L,outFFTBuffer_L,BLOCK_SIZE/2);
-			arm_max_f32(outFFTBuffer_L,BLOCK_SIZE/2,&note_amp,&note_ind);
-			//arm_mean_f32(outFFTBuffer_L,BLOCK_SIZE/2,&note_amp);				// retorna o valor medio em note_amp
-			//note_ind = first_peak(outFFTBuffer_L,&note_amp);
+			arm_max_f32(outFFTBuffer_L,BLOCK_SIZE/2,&note_amp,&note_ind);		// retorna o valor maximo, que na guitarra sera sempre o tom errado
+			//arm_mean_f32(outFFTBuffer_L,BLOCK_SIZE/2,&note_amp);				// retorna o valor medio em note_amp (nao funiona)
+			//note_ind = first_peak(outFFTBuffer_L,&note_amp);					// nao funciona
 
 			aux = check_note(note_ind);		// verifica que nota é para acender o respectivo led
 
 			// Debug
-			trace_printf("BLOCK H:	 mean: %f 	 ind: %d 	 sel: %d\n",note_amp,note_ind,aux);
+			trace_printf("BLOCK H:	 amp: %f 	 ind: %d 	 sel: %d\n",note_amp,note_ind,aux);
 
 			switch(aux){
 
@@ -381,13 +355,13 @@ int main(int argc, char* argv[])
 			arm_rfft_fast_f32(&S_L, inputF32Buffer_L, outFFTBuffer_L, 0);
 			//arm_rfft_fast_f32(&S_R, outputF32Buffer_R, outFFTBuffer_R, 0);
 
-			// Varre o buffer do canal para separar a parte real
+			// Varre o buffer do canal para separar a parte real, resulta em um buffer com metade do tamanho
 			for(i=0,L=0; i < BLOCK_SIZE; i++){
 				// pega a parte real
 				if(i%2==0){
 
-					outFFTBuffer_L[L] = outFFTBuffer_L[i]/BLOCK_SIZE;  	// aplica um ganho
-					//trace_printf("\nblock H:\n k=%d  val=%f\n",i,outFFTBuffer_R[i]);
+					outFFTBuffer_L[L] = outFFTBuffer_L[i]/BLOCK_SIZE;
+					//trace_printf("\nblock H:\n k=%d  val=%f\n",i,outFFTBuffer_L[L]);
 					//outFFTBuffer_R[L] = outFFTBuffer_L[i];
 					L++;
 				}
@@ -403,7 +377,7 @@ int main(int argc, char* argv[])
 			aux = check_note(note_ind);		// verifica que nota é para acender o respectivo led
 
 			// Debug
-			trace_printf("BLOCK F:	 mean: %f 	 ind: %d  	sel: %d\n",note_amp,note_ind,aux);
+			trace_printf("BLOCK F:	 amp: %f 	 ind: %d 	 sel: %d\n",note_amp,note_ind,aux);
 
 			switch(aux){
 
