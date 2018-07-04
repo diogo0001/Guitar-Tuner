@@ -98,7 +98,7 @@ uint32_t first_peak(float32_t *buffer, uint32_t size)
 {
 	uint32_t ind = 0;
 	uint32_t i;
-	uint32_t indexBuffer[5];
+	uint32_t indexBuffer[6];
 	float32_t amp;  // para substituir o mean
 
 	// Aquisição de 5 maiores picos
@@ -107,6 +107,7 @@ uint32_t first_peak(float32_t *buffer, uint32_t size)
 	buffer[ind] = 0;					// zera no buffer..
 	//trace_printf("\nFIRST_PEAK 1: ind: %d	amp: %f\n",ind,amp);
 
+	// comentado para funcionar apenas com a senoide
 	arm_max_f32(buffer,size,&amp,&ind);	// segundo pico
 	indexBuffer[1] = ind;
 	buffer[ind] = 0;
@@ -127,11 +128,16 @@ uint32_t first_peak(float32_t *buffer, uint32_t size)
 	buffer[ind] = 0;
 	//trace_printf("FIRST_PEAK 5: ind: %d	amp: %f\n",ind,amp);
 
+	arm_max_f32(buffer,size,&amp,&ind);
+	indexBuffer[5] = ind;
+	buffer[ind] = 0;
+	//trace_printf("FIRST_PEAK 5: ind: %d	amp: %f\n",ind,amp);
+
 	ind = size*2;		  // valor maior que qualquer indice
 
-	for(i=0;i<5;i++){
+	for(i=0;i<6;i++){
 
-		if(indexBuffer[i]< ind & indexBuffer[i]>0){
+		if((indexBuffer[i]< ind) & (indexBuffer[i]>0)){		// Adquire o menor indice
 			ind = indexBuffer[i];
 		}
 	}
@@ -290,11 +296,12 @@ int main(int argc, char* argv[])
 
 			// Detecta o pico da harmonica fundamental
 
+			arm_abs_f32(outFFTBuffer_L,outFFTBuffer_L,BLOCK_SIZE/2);
 			note_ind = first_peak(outFFTBuffer_L,BLOCK_SIZE/2);
 			aux = check_note(note_ind);		// verifica que nota é para acender o respectivo led
 
 			// Debug
-			//trace_printf("BLOCK H:	 ind: %d 	 sel: %d\n",note_ind,aux);
+			trace_printf("BLOCK H:	 ind: %d 	 sel: %d\n",note_ind,aux);
 
 			set_leds(aux);
 
@@ -364,11 +371,12 @@ int main(int argc, char* argv[])
 
 			// Detecta o pico da harmonica fundamental
 
+			arm_abs_f32(outFFTBuffer_L,outFFTBuffer_L,BLOCK_SIZE/2);
 			note_ind = first_peak(outFFTBuffer_L,BLOCK_SIZE/2);
 			aux = check_note(note_ind);		// verifica que nota é para acender o respectivo led
 
 			// Debug
-			//trace_printf("BLOCK F:	 ind: %d 	 sel: %d\n",note_ind,aux);
+			trace_printf("BLOCK F:	 ind: %d 	 sel: %d\n",note_ind,aux);
 
 			set_leds(aux);
 
